@@ -1,12 +1,11 @@
 // ============================================================
-// Light the Lamp v0.2 — Plug in & Light up!
+// Light the Lamp v0.3 — Plug in & Light up!
 // HuFamilyGame — Created by Kai and Ray
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 
-// --- Responsive sizing ---
 let W, H, SCALE;
 function resize() {
   W = canvas.width = window.innerWidth * devicePixelRatio;
@@ -18,9 +17,9 @@ function resize() {
 window.addEventListener('resize', resize);
 resize();
 
-const VERSION = 'v0.2';
+const VERSION = 'v0.3';
 
-// --- Game state ---
+// ============ GAME STATE ============
 let state = 'title';
 let currentLevel = 0;
 let wirePath = [];
@@ -32,31 +31,35 @@ let winAlpha = 0;
 let wireSnapPoint = null;
 let wireSnapTimer = 0;
 let levelAdvancing = false;
-let gameTime = 0; // elapsed time in level
-
-// Dynamic entities (per level, runtime)
-let bombs = [];       // { x, y, radius, fuse, exploded, explodeTimer, nx, ny (normalized) }
-let birds = [];       // { x, y, vx, vy, nx, ny, frame, biteTimer }
-let movingKnives = []; // { x, y, angle, w, h, vx, vy, nx, ny, minX, maxX, minY, maxY }
-let explosions = [];   // { x, y, timer, maxRadius }
+let gameTime = 0;
 let failReason = '';
 
-// --- Levels ---
-const LAMP_OFFSET_Y = 0.12;
+// Dynamic entities
+let bombs = [];
+let birds = [];
+let movingKnives = [];
+let pools = [];
+let explosions = [];
 
+// ============ HELPERS ============
+function nx(v) { return v * W; }
+function ny(v) { return v * H; }
+function s(v) { return v * SCALE; }
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function getLampPos(level) {
+  return { x: level.socket.x, y: Math.max(0.06, level.socket.y - 0.12) };
+}
+
+// ============ LEVELS ============
 const levels = [
-  // Level 1: Tutorial — one static knife blocks direct path
+  // L1: Tutorial — one knife blocks direct line
   {
     plugStart: { x: 0.1, y: 0.75 },
     socket: { x: 0.9, y: 0.25 },
-    knives: [
-      { x: 0.5, y: 0.5, angle: 0.4, w: 0.2, h: 0.03 }
-    ],
-    movingKnives: [],
-    bombs: [],
-    birds: []
+    knives: [{ x: 0.5, y: 0.5, angle: 0.4, w: 0.22, h: 0.03 }],
+    movingKnives: [], bombs: [], birds: [], pools: []
   },
-  // Level 2: Two knives blocking the diagonal
+  // L2: Two knives + a pool
   {
     plugStart: { x: 0.1, y: 0.85 },
     socket: { x: 0.9, y: 0.2 },
@@ -64,24 +67,21 @@ const levels = [
       { x: 0.35, y: 0.55, angle: -0.3, w: 0.22, h: 0.03 },
       { x: 0.65, y: 0.45, angle: 0.3, w: 0.22, h: 0.03 }
     ],
-    movingKnives: [],
-    bombs: [],
-    birds: []
+    movingKnives: [], bombs: [], birds: [],
+    pools: [{ nx: 0.5, ny: 0.7, r: 0.06 }]
   },
-  // Level 3: Moving knife + static knife
+  // L3: Moving knife
   {
     plugStart: { x: 0.1, y: 0.8 },
     socket: { x: 0.9, y: 0.2 },
-    knives: [
-      { x: 0.5, y: 0.35, angle: 0, w: 0.25, h: 0.03 }
-    ],
+    knives: [{ x: 0.5, y: 0.35, angle: 0, w: 0.25, h: 0.03 }],
     movingKnives: [
       { x: 0.3, y: 0.6, angle: 0, w: 0.15, h: 0.025, vx: 0.15, vy: 0, minX: 0.15, maxX: 0.7, minY: 0.6, maxY: 0.6 }
     ],
-    bombs: [],
-    birds: []
+    bombs: [], birds: [],
+    pools: [{ nx: 0.7, ny: 0.7, r: 0.05 }]
   },
-  // Level 4: First bomb level
+  // L4: Rolling bomb (proximity trigger)
   {
     plugStart: { x: 0.08, y: 0.85 },
     socket: { x: 0.92, y: 0.15 },
@@ -90,27 +90,22 @@ const levels = [
       { x: 0.7, y: 0.4, angle: -0.5, w: 0.18, h: 0.025 }
     ],
     movingKnives: [],
-    bombs: [
-      { nx: 0.5, ny: 0.6, fuse: 4, radius: 0.12 }
-    ],
-    birds: []
+    bombs: [{ nx: 0.5, ny: 0.65, radius: 0.12, vx: 0.08, vy: 0.04, triggerDist: 0.15 }],
+    birds: [], pools: []
   },
-  // Level 5: Moving knife + bomb combo
+  // L5: Moving knife + bomb + pool
   {
     plugStart: { x: 0.08, y: 0.9 },
     socket: { x: 0.92, y: 0.15 },
-    knives: [
-      { x: 0.5, y: 0.3, angle: 0, w: 0.3, h: 0.025 }
-    ],
+    knives: [{ x: 0.5, y: 0.3, angle: 0, w: 0.3, h: 0.025 }],
     movingKnives: [
       { x: 0.2, y: 0.6, angle: 0.3, w: 0.15, h: 0.025, vx: 0.12, vy: 0, minX: 0.1, maxX: 0.6, minY: 0.6, maxY: 0.6 }
     ],
-    bombs: [
-      { nx: 0.75, ny: 0.55, fuse: 5, radius: 0.1 }
-    ],
-    birds: []
+    bombs: [{ nx: 0.75, ny: 0.55, radius: 0.1, vx: 0.06, vy: -0.05, triggerDist: 0.13 }],
+    birds: [],
+    pools: [{ nx: 0.4, ny: 0.75, r: 0.05 }]
   },
-  // Level 6: First bird level!
+  // L6: First bird!
   {
     plugStart: { x: 0.1, y: 0.85 },
     socket: { x: 0.9, y: 0.2 },
@@ -118,19 +113,15 @@ const levels = [
       { x: 0.4, y: 0.5, angle: 0.3, w: 0.2, h: 0.025 },
       { x: 0.7, y: 0.6, angle: -0.4, w: 0.18, h: 0.025 }
     ],
-    movingKnives: [],
-    bombs: [],
-    birds: [
-      { nx: 0.6, ny: 0.7, speed: 0.06 }
-    ]
+    movingKnives: [], bombs: [],
+    birds: [{ nx: 0.6, ny: 0.7, speed: 0.06 }],
+    pools: [{ nx: 0.25, ny: 0.65, r: 0.055 }]
   },
-  // Level 7: Two birds + moving knife
+  // L7: Two birds + moving knife + pool
   {
     plugStart: { x: 0.05, y: 0.9 },
     socket: { x: 0.95, y: 0.15 },
-    knives: [
-      { x: 0.5, y: 0.45, angle: 0, w: 0.25, h: 0.025 }
-    ],
+    knives: [{ x: 0.5, y: 0.45, angle: 0, w: 0.25, h: 0.025 }],
     movingKnives: [
       { x: 0.3, y: 0.7, angle: 0, w: 0.15, h: 0.025, vx: 0, vy: -0.1, minX: 0.3, maxX: 0.3, minY: 0.3, maxY: 0.7 }
     ],
@@ -138,9 +129,10 @@ const levels = [
     birds: [
       { nx: 0.2, ny: 0.4, speed: 0.07 },
       { nx: 0.8, ny: 0.6, speed: 0.05 }
-    ]
+    ],
+    pools: [{ nx: 0.6, ny: 0.3, r: 0.05 }, { nx: 0.4, ny: 0.8, r: 0.04 }]
   },
-  // Level 8: Bomb + bird + multiple knives
+  // L8: Bomb + bird + multiple knives + pool
   {
     plugStart: { x: 0.05, y: 0.92 },
     socket: { x: 0.5, y: 0.12 },
@@ -150,14 +142,11 @@ const levels = [
       { x: 0.5, y: 0.7, angle: 0, w: 0.2, h: 0.025 }
     ],
     movingKnives: [],
-    bombs: [
-      { nx: 0.5, ny: 0.4, fuse: 3.5, radius: 0.13 }
-    ],
-    birds: [
-      { nx: 0.3, ny: 0.3, speed: 0.08 }
-    ]
+    bombs: [{ nx: 0.5, ny: 0.4, radius: 0.13, vx: 0.07, vy: 0.05, triggerDist: 0.12 }],
+    birds: [{ nx: 0.3, ny: 0.3, speed: 0.08 }],
+    pools: [{ nx: 0.7, ny: 0.75, r: 0.06 }]
   },
-  // Level 9: Chaos — everything
+  // L9: Chaos
   {
     plugStart: { x: 0.05, y: 0.5 },
     socket: { x: 0.95, y: 0.5 },
@@ -170,14 +159,11 @@ const levels = [
     movingKnives: [
       { x: 0.5, y: 0.3, angle: 0, w: 0.12, h: 0.02, vx: 0, vy: 0.15, minX: 0.5, maxX: 0.5, minY: 0.25, maxY: 0.75 }
     ],
-    bombs: [
-      { nx: 0.5, ny: 0.5, fuse: 3, radius: 0.11 }
-    ],
-    birds: [
-      { nx: 0.4, ny: 0.2, speed: 0.09 }
-    ]
+    bombs: [{ nx: 0.5, ny: 0.5, radius: 0.11, vx: -0.06, vy: 0.06, triggerDist: 0.14 }],
+    birds: [{ nx: 0.4, ny: 0.2, speed: 0.09 }],
+    pools: [{ nx: 0.2, ny: 0.5, r: 0.05 }, { nx: 0.8, ny: 0.5, r: 0.05 }]
   },
-  // Level 10: FINAL BOSS — two bombs, two birds, moving knives
+  // L10: FINAL BOSS
   {
     plugStart: { x: 0.05, y: 0.95 },
     socket: { x: 0.95, y: 0.08 },
@@ -191,34 +177,29 @@ const levels = [
       { x: 0.6, y: 0.7, angle: -0.2, w: 0.13, h: 0.02, vx: 0, vy: -0.12, minX: 0.6, maxX: 0.6, minY: 0.4, maxY: 0.8 }
     ],
     bombs: [
-      { nx: 0.35, ny: 0.75, fuse: 3, radius: 0.1 },
-      { nx: 0.7, ny: 0.5, fuse: 5, radius: 0.12 }
+      { nx: 0.35, ny: 0.75, radius: 0.1, vx: 0.07, vy: -0.04, triggerDist: 0.12 },
+      { nx: 0.7, ny: 0.5, radius: 0.12, vx: -0.05, vy: 0.06, triggerDist: 0.13 }
     ],
     birds: [
       { nx: 0.5, ny: 0.8, speed: 0.1 },
       { nx: 0.8, ny: 0.3, speed: 0.08 }
+    ],
+    pools: [
+      { nx: 0.4, ny: 0.5, r: 0.055 },
+      { nx: 0.85, ny: 0.7, r: 0.05 }
     ]
   }
 ];
 
-// --- Helpers ---
-function nx(v) { return v * W; }
-function ny(v) { return v * H; }
-function s(v) { return v * SCALE; }
-function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
-function getLampPos(level) {
-  return { x: level.socket.x, y: Math.max(0.06, level.socket.y - LAMP_OFFSET_Y) };
-}
+// ============ COLLISION ============
 
-// --- Collision: line segment vs rotated rectangle ---
 function lineSegIntersectsRect(p1, p2, cx, cy, hw, hh, angle) {
   const cos = Math.cos(-angle), sin = Math.sin(-angle);
   function toLocal(p) {
     const dx = p.x - cx, dy = p.y - cy;
     return { x: dx * cos - dy * sin, y: dx * sin + dy * cos };
   }
-  const a = toLocal(p1), b = toLocal(p2);
-  return lineSegIntersectsAABB(a, b, -hw, -hh, hw, hh);
+  return lineSegIntersectsAABB(toLocal(p1), toLocal(p2), -hw, -hh, hw, hh);
 }
 
 function lineSegIntersectsAABB(p1, p2, minX, minY, maxX, maxY) {
@@ -231,15 +212,15 @@ function lineSegIntersectsAABB(p1, p2, minX, minY, maxX, maxY) {
   let c1 = code(p1), c2 = code(p2);
   if ((c1 & c2) !== 0) return false;
   if ((c1 | c2) === 0) return true;
-  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const ddx = p2.x - p1.x, ddy = p2.y - p1.y;
   const edges = [
-    { nx: -1, ny: 0, d: minX }, { nx: 1, ny: 0, d: -maxX },
-    { nx: 0, ny: -1, d: minY }, { nx: 0, ny: 1, d: -maxY }
+    { enx: -1, eny: 0, d: minX }, { enx: 1, eny: 0, d: -maxX },
+    { enx: 0, eny: -1, d: minY }, { enx: 0, eny: 1, d: -maxY }
   ];
   let tMin = 0, tMax = 1;
   for (const e of edges) {
-    const denom = e.nx * dx + e.ny * dy;
-    const num = -(e.nx * p1.x + e.ny * p1.y + e.d);
+    const denom = e.enx * ddx + e.eny * ddy;
+    const num = -(e.enx * p1.x + e.eny * p1.y + e.d);
     if (Math.abs(denom) < 1e-10) { if (num < 0) return false; }
     else {
       const t = num / denom;
@@ -255,17 +236,72 @@ function checkKnifeCollision(p1, p2, knife) {
   return lineSegIntersectsRect(p1, p2, cx, cy, hw, hh, knife.angle);
 }
 
-// Check wire against ALL hazards
-function checkAllCollisions() {
+// Point inside circle (pixel coords)
+function pointInCircle(px, py, cx, cy, r) {
+  return Math.hypot(px - cx, py - cy) < r;
+}
+
+// Line segment intersects circle
+function segmentIntersectsCircle(p1, p2, cx, cy, r) {
+  // Check endpoints
+  if (pointInCircle(p1.x, p1.y, cx, cy, r)) return true;
+  if (pointInCircle(p2.x, p2.y, cx, cy, r)) return true;
+  // Closest point on segment to circle center
+  const dx = p2.x - p1.x, dy = p2.y - p1.y;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return false;
+  let t = ((cx - p1.x) * dx + (cy - p1.y) * dy) / len2;
+  t = Math.max(0, Math.min(1, t));
+  const closestX = p1.x + t * dx, closestY = p1.y + t * dy;
+  return Math.hypot(closestX - cx, closestY - cy) < r;
+}
+
+// Two line segments intersect
+function segmentsIntersect(a1, a2, b1, b2) {
+  function cross(o, a, b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); }
+  const d1 = cross(b1, b2, a1), d2 = cross(b1, b2, a2);
+  const d3 = cross(a1, a2, b1), d4 = cross(a1, a2, b2);
+  if (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+      ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0))) return true;
+  return false;
+}
+
+// Check plug touching its own wire (skip last few segments near plug)
+function checkPlugSelfCollision() {
+  if (wirePath.length < 10) return -1; // need some wire before checking
+  const plugR = s(20);
+  // Check plug position against wire segments (skip last 8 to avoid false positives near plug)
+  for (let i = 0; i < wirePath.length - 8; i++) {
+    if (pointInCircle(plugPos.x, plugPos.y, wirePath[i].x, wirePath[i].y, plugR)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Check wire self-crossing
+function checkWireCrossing() {
+  if (wirePath.length < 8) return -1;
+  // Only check the newest segment against older ones (skip nearby)
+  const last = wirePath.length - 1;
+  const p1 = wirePath[last - 1], p2 = wirePath[last];
+  for (let i = 0; i < last - 5; i++) {
+    if (segmentsIntersect(p1, p2, wirePath[i], wirePath[i + 1])) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+// Check wire against all knives
+function checkAllKnifeCollisions() {
   if (wirePath.length < 2) return null;
+  const level = levels[currentLevel];
   for (let i = 0; i < wirePath.length - 1; i++) {
     const p1 = wirePath[i], p2 = wirePath[i + 1];
-    // Static knives
-    const level = levels[currentLevel];
     for (const k of level.knives) {
       if (checkKnifeCollision(p1, p2, k)) return { segIndex: i, reason: 'knife' };
     }
-    // Moving knives
     for (const mk of movingKnives) {
       if (checkKnifeCollision(p1, p2, mk)) return { segIndex: i, reason: 'knife' };
     }
@@ -273,69 +309,89 @@ function checkAllCollisions() {
   return null;
 }
 
-// Check wire against explosion radius
+// Check wire against pools
+function checkPoolCollisions() {
+  if (wirePath.length < 2) return null;
+  for (let i = 0; i < wirePath.length - 1; i++) {
+    for (const pool of pools) {
+      if (segmentIntersectsCircle(wirePath[i], wirePath[i + 1], pool.x, pool.y, pool.r)) {
+        return { segIndex: i, reason: 'pool' };
+      }
+    }
+  }
+  return null;
+}
+
+// Check wire near bomb (proximity trigger)
+function checkBombProximity() {
+  for (const bomb of bombs) {
+    if (bomb.exploded) continue;
+    const trigR = nx(bomb.triggerDist);
+    for (let i = 0; i < wirePath.length; i++) {
+      if (Math.hypot(wirePath[i].x - bomb.x, wirePath[i].y - bomb.y) < trigR) {
+        return bomb;
+      }
+    }
+  }
+  return null;
+}
+
+// Check wire in explosion radius
 function checkExplosionWire(ex, ey, radius) {
-  if (wirePath.length < 2) return -1;
   for (let i = 0; i < wirePath.length; i++) {
-    const p = wirePath[i];
-    if (Math.hypot(p.x - ex, p.y - ey) < radius) return i;
+    if (Math.hypot(wirePath[i].x - ex, wirePath[i].y - ey) < radius) return i;
   }
   return -1;
 }
 
-// Check bird bite on wire
+// Bird bite check
 function checkBirdBite(bird) {
   if (wirePath.length < 2) return -1;
-  const bx = bird.x, by = bird.y;
   const biteRange = s(25);
   for (let i = 0; i < wirePath.length; i++) {
-    if (Math.hypot(wirePath[i].x - bx, wirePath[i].y - by) < biteRange) return i;
+    if (Math.hypot(wirePath[i].x - bird.x, wirePath[i].y - bird.y) < biteRange) return i;
   }
   return -1;
 }
 
-// --- Init level ---
+// ============ INIT LEVEL ============
+
 function initLevel() {
   const level = levels[currentLevel];
   plugPos = { x: nx(level.plugStart.x), y: ny(level.plugStart.y) };
   wirePath = [{ x: plugPos.x, y: plugPos.y }];
   dragging = false;
-  lampGlow = 0;
-  failAlpha = 0;
-  winAlpha = 0;
-  wireSnapPoint = null;
-  wireSnapTimer = 0;
-  levelAdvancing = false;
-  gameTime = 0;
-  failReason = '';
+  lampGlow = 0; failAlpha = 0; winAlpha = 0;
+  wireSnapPoint = null; wireSnapTimer = 0;
+  levelAdvancing = false; gameTime = 0; failReason = '';
   explosions = [];
 
-  // Init bombs
   bombs = (level.bombs || []).map(b => ({
-    x: nx(b.nx), y: ny(b.ny), nx: b.nx, ny: b.ny,
-    fuse: b.fuse, fuseLeft: b.fuse,
-    radius: b.radius, exploded: false, explodeTimer: 0
+    x: nx(b.nx), y: ny(b.ny),
+    vx: b.vx || 0, vy: b.vy || 0,
+    radius: b.radius, triggerDist: b.triggerDist || 0.15,
+    exploded: false, triggered: false, fuseLeft: 1.5 // 1.5s after triggered
   }));
 
-  // Init birds
   birds = (level.birds || []).map(b => {
     const angle = Math.random() * Math.PI * 2;
     return {
-      x: nx(b.nx), y: ny(b.ny), nx: b.nx, ny: b.ny,
+      x: nx(b.nx), y: ny(b.ny),
       vx: Math.cos(angle) * b.speed, vy: Math.sin(angle) * b.speed,
       speed: b.speed, frame: 0, biteTimer: 0, biting: false
     };
   });
 
-  // Init moving knives
   movingKnives = (level.movingKnives || []).map(mk => ({ ...mk }));
+
+  pools = (level.pools || []).map(p => ({
+    x: nx(p.nx), y: ny(p.ny), r: nx(p.r)
+  }));
 
   state = 'playing';
 }
 
-// ============================================================
-// DRAWING FUNCTIONS
-// ============================================================
+// ============ DRAWING ============
 
 function drawBackground() {
   const grad = ctx.createRadialGradient(W / 2, H / 3, s(50), W / 2, H / 2, Math.max(W, H));
@@ -347,469 +403,315 @@ function drawBackground() {
 
 function drawWire() {
   if (wirePath.length < 2) return;
-  // Shadow
   ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-  ctx.lineWidth = s(10);
-  ctx.lineCap = 'round';
-  ctx.lineJoin = 'round';
+  ctx.lineWidth = s(10); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
   ctx.beginPath();
   ctx.moveTo(wirePath[0].x + s(3), wirePath[0].y + s(3));
   for (let i = 1; i < wirePath.length; i++) ctx.lineTo(wirePath[i].x + s(3), wirePath[i].y + s(3));
   ctx.stroke();
-  // Main wire
-  ctx.strokeStyle = '#2d2d2d';
-  ctx.lineWidth = s(7);
+  ctx.strokeStyle = '#2d2d2d'; ctx.lineWidth = s(7);
   ctx.beginPath();
   ctx.moveTo(wirePath[0].x, wirePath[0].y);
   for (let i = 1; i < wirePath.length; i++) ctx.lineTo(wirePath[i].x, wirePath[i].y);
   ctx.stroke();
-  // Highlight
-  ctx.strokeStyle = 'rgba(80,80,80,0.4)';
-  ctx.lineWidth = s(3);
+  ctx.strokeStyle = 'rgba(80,80,80,0.4)'; ctx.lineWidth = s(3);
   ctx.beginPath();
   ctx.moveTo(wirePath[0].x - s(1), wirePath[0].y - s(2));
   for (let i = 1; i < wirePath.length; i++) ctx.lineTo(wirePath[i].x - s(1), wirePath[i].y - s(2));
   ctx.stroke();
 }
 
+function drawSnappedWire() {
+  if (!wireSnapPoint || wirePath.length < 2) return;
+  const idx = wireSnapPoint.segIndex;
+  ctx.strokeStyle = '#2d2d2d'; ctx.lineWidth = s(7); ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(wirePath[0].x, wirePath[0].y);
+  for (let i = 1; i <= Math.min(idx + 1, wirePath.length - 1); i++) ctx.lineTo(wirePath[i].x, wirePath[i].y);
+  ctx.stroke();
+  const sp = wirePath[Math.min(idx + 1, wirePath.length - 1)];
+  const sparkSize = s(15) * (1 + Math.sin(wireSnapTimer * 15) * 0.5);
+  ctx.fillStyle = `rgba(255, 200, 50, ${0.8 - wireSnapTimer * 0.8})`;
+  ctx.beginPath(); ctx.arc(sp.x, sp.y, sparkSize, 0, Math.PI * 2); ctx.fill();
+}
+
 function drawPlug(x, y) {
   const ps = s(18);
-  ctx.fillStyle = '#555';
-  ctx.strokeStyle = '#333';
-  ctx.lineWidth = s(2);
+  ctx.fillStyle = '#555'; ctx.strokeStyle = '#333'; ctx.lineWidth = s(2);
   const bw = ps * 1.8, bh = ps * 2.4;
-  ctx.beginPath();
-  roundRect(ctx, x - bw / 2, y - bh / 2, bw, bh, s(4));
-  ctx.fill();
-  ctx.stroke();
+  ctx.beginPath(); roundRect(ctx, x - bw / 2, y - bh / 2, bw, bh, s(4)); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#c0c0c0';
   ctx.fillRect(x - ps * 0.5, y - bh / 2 - ps * 0.6, ps * 0.25, ps * 0.7);
   ctx.fillRect(x + ps * 0.25, y - bh / 2 - ps * 0.6, ps * 0.25, ps * 0.7);
-  ctx.strokeStyle = '#444';
-  ctx.lineWidth = s(1.5);
+  ctx.strokeStyle = '#444'; ctx.lineWidth = s(1.5);
   for (let i = -2; i <= 2; i++) {
-    ctx.beginPath();
-    ctx.moveTo(x - ps * 0.5, y + i * ps * 0.25);
-    ctx.lineTo(x + ps * 0.5, y + i * ps * 0.25);
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(x - ps * 0.5, y + i * ps * 0.25); ctx.lineTo(x + ps * 0.5, y + i * ps * 0.25); ctx.stroke();
   }
 }
 
 function drawSocket(sx, sy) {
   const ss = s(30);
-  ctx.fillStyle = '#e8e0d0';
-  ctx.strokeStyle = '#bbb';
-  ctx.lineWidth = s(2);
-  ctx.beginPath();
-  roundRect(ctx, sx - ss, sy - ss * 1.2, ss * 2, ss * 2.4, s(6));
-  ctx.fill();
-  ctx.stroke();
+  ctx.fillStyle = '#e8e0d0'; ctx.strokeStyle = '#bbb'; ctx.lineWidth = s(2);
+  ctx.beginPath(); roundRect(ctx, sx - ss, sy - ss * 1.2, ss * 2, ss * 2.4, s(6)); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#1a1a1a';
-  ctx.beginPath();
-  ctx.arc(sx - ss * 0.3, sy - ss * 0.15, s(5), 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(sx + ss * 0.3, sy - ss * 0.15, s(5), 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  roundRect(ctx, sx - s(4), sy + ss * 0.2, s(8), s(12), s(2));
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(sx - ss * 0.3, sy - ss * 0.15, s(5), 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(sx + ss * 0.3, sy - ss * 0.15, s(5), 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); roundRect(ctx, sx - s(4), sy + ss * 0.2, s(8), s(12), s(2)); ctx.fill();
 }
 
 function drawLamp(lx, ly, glowAmount) {
   const ls = s(35);
-  // Shade
-  ctx.fillStyle = '#8B7355';
-  ctx.strokeStyle = '#6B5335';
-  ctx.lineWidth = s(2);
+  ctx.fillStyle = '#8B7355'; ctx.strokeStyle = '#6B5335'; ctx.lineWidth = s(2);
   ctx.beginPath();
-  ctx.moveTo(lx - ls * 0.3, ly);
-  ctx.lineTo(lx + ls * 0.3, ly);
-  ctx.lineTo(lx + ls * 0.8, ly + ls * 1.2);
-  ctx.lineTo(lx - ls * 0.8, ly + ls * 1.2);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
+  ctx.moveTo(lx - ls * 0.3, ly); ctx.lineTo(lx + ls * 0.3, ly);
+  ctx.lineTo(lx + ls * 0.8, ly + ls * 1.2); ctx.lineTo(lx - ls * 0.8, ly + ls * 1.2);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
   if (glowAmount > 0) {
     const glowRad = ls * 2 * glowAmount;
     const glow = ctx.createRadialGradient(lx, ly + ls * 0.6, s(5), lx, ly + ls * 0.6, glowRad);
-    glow.addColorStop(0, `rgba(255, 230, 120, ${0.6 * glowAmount})`);
-    glow.addColorStop(0.5, `rgba(255, 200, 50, ${0.2 * glowAmount})`);
-    glow.addColorStop(1, 'rgba(255, 200, 50, 0)');
+    glow.addColorStop(0, `rgba(255,230,120,${0.6 * glowAmount})`);
+    glow.addColorStop(0.5, `rgba(255,200,50,${0.2 * glowAmount})`);
+    glow.addColorStop(1, 'rgba(255,200,50,0)');
     ctx.fillStyle = glow;
     ctx.fillRect(lx - glowRad, ly + ls * 0.6 - glowRad, glowRad * 2, glowRad * 2);
-    ctx.fillStyle = `rgba(255, 240, 150, ${glowAmount})`;
-  } else {
-    ctx.fillStyle = '#666';
-  }
-  ctx.beginPath();
-  ctx.arc(lx, ly + ls * 0.6, ls * 0.35, 0, Math.PI * 2);
-  ctx.fill();
-  // Post + base
-  ctx.fillStyle = '#5a4a3a';
-  ctx.fillRect(lx - s(4), ly + ls * 1.2, s(8), ls * 0.8);
-  ctx.fillStyle = '#4a3a2a';
-  ctx.beginPath();
-  roundRect(ctx, lx - ls * 0.5, ly + ls * 2, ls, ls * 0.25, s(3));
-  ctx.fill();
+    ctx.fillStyle = `rgba(255,240,150,${glowAmount})`;
+  } else { ctx.fillStyle = '#666'; }
+  ctx.beginPath(); ctx.arc(lx, ly + ls * 0.6, ls * 0.35, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5a4a3a'; ctx.fillRect(lx - s(4), ly + ls * 1.2, s(8), ls * 0.8);
+  ctx.fillStyle = '#4a3a2a'; ctx.beginPath(); roundRect(ctx, lx - ls * 0.5, ly + ls * 2, ls, ls * 0.25, s(3)); ctx.fill();
 }
 
 function drawKnife(knife, isMoving) {
   const cx = nx(knife.x), cy = ny(knife.y);
   const kw = nx(knife.w), kh = Math.max(ny(knife.h), s(20));
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate(knife.angle);
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(knife.angle);
   const bladeW = kw * 0.7, bladeH = kh;
-  // Blade
   ctx.fillStyle = isMoving ? '#e0e0e8' : '#d0d0d8';
-  ctx.strokeStyle = '#a0a0a8';
-  ctx.lineWidth = s(1.5);
+  ctx.strokeStyle = '#a0a0a8'; ctx.lineWidth = s(1.5);
   ctx.beginPath();
-  ctx.moveTo(-bladeW / 2, -bladeH);
-  ctx.lineTo(bladeW / 2, -bladeH);
-  ctx.lineTo(bladeW / 2 + s(3), 0);
-  ctx.lineTo(bladeW / 2, bladeH);
-  ctx.lineTo(-bladeW / 2, bladeH);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  // Shine
+  ctx.moveTo(-bladeW / 2, -bladeH); ctx.lineTo(bladeW / 2, -bladeH);
+  ctx.lineTo(bladeW / 2 + s(3), 0); ctx.lineTo(bladeW / 2, bladeH); ctx.lineTo(-bladeW / 2, bladeH);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
   ctx.fillStyle = 'rgba(255,255,255,0.2)';
   ctx.fillRect(-bladeW / 2 + s(3), -bladeH + s(2), s(5), bladeH * 2 - s(4));
-  // Handle
   const handleW = kw * 0.35;
-  ctx.fillStyle = isMoving ? '#e74c3c' : '#c0392b';
-  ctx.strokeStyle = '#962d22';
-  ctx.lineWidth = s(1.5);
-  ctx.beginPath();
-  roundRect(ctx, -bladeW / 2 - handleW, -bladeH * 0.7, handleW, bladeH * 1.4, s(3));
-  ctx.fill();
-  ctx.stroke();
-  // Danger glow for moving knives
+  ctx.fillStyle = isMoving ? '#e74c3c' : '#c0392b'; ctx.strokeStyle = '#962d22'; ctx.lineWidth = s(1.5);
+  ctx.beginPath(); roundRect(ctx, -bladeW / 2 - handleW, -bladeH * 0.7, handleW, bladeH * 1.4, s(3)); ctx.fill(); ctx.stroke();
   if (isMoving) {
-    ctx.shadowColor = 'rgba(255, 50, 50, 0.5)';
-    ctx.shadowBlur = s(12);
-    ctx.strokeStyle = 'rgba(255, 80, 80, 0.3)';
-    ctx.lineWidth = s(2);
+    ctx.shadowColor = 'rgba(255,50,50,0.5)'; ctx.shadowBlur = s(12);
+    ctx.strokeStyle = 'rgba(255,80,80,0.3)'; ctx.lineWidth = s(2);
     ctx.strokeRect(-bladeW / 2 - handleW - s(3), -bladeH - s(3), bladeW + handleW + s(6), bladeH * 2 + s(6));
     ctx.shadowBlur = 0;
   }
   ctx.restore();
 }
 
-// --- Bomb drawing ---
-function drawBomb(bomb, time) {
-  const bx = bomb.x, by = bomb.y;
-  const bs = s(22);
+// --- Pool (water) ---
+function drawPool(pool, time) {
+  const { x: px, y: py, r } = pool;
+  // Water body
+  const grad = ctx.createRadialGradient(px, py, 0, px, py, r);
+  grad.addColorStop(0, 'rgba(30,144,255,0.6)');
+  grad.addColorStop(0.7, 'rgba(0,100,200,0.4)');
+  grad.addColorStop(1, 'rgba(0,60,150,0.1)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.arc(px, py, r, 0, Math.PI * 2); ctx.fill();
+  // Ripple animation
+  const ripple1 = (time * 0.8) % 1;
+  const ripple2 = (time * 0.8 + 0.5) % 1;
+  ctx.strokeStyle = `rgba(100,200,255,${0.4 * (1 - ripple1)})`;
+  ctx.lineWidth = s(1.5);
+  ctx.beginPath(); ctx.arc(px, py, r * ripple1, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = `rgba(100,200,255,${0.3 * (1 - ripple2)})`;
+  ctx.beginPath(); ctx.arc(px, py, r * ripple2, 0, Math.PI * 2); ctx.stroke();
+  // ⚡ icon
+  ctx.fillStyle = 'rgba(255,255,100,0.5)';
+  ctx.font = `${s(18)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('💧', px, py);
+}
 
-  if (bomb.exploded) return; // drawn by explosion system
+// --- Bomb (rolling, proximity trigger) ---
+function drawBomb(bomb, time) {
+  if (bomb.exploded) return;
+  const bx = bomb.x, by = bomb.y, bs = s(22);
+
+  // Rolling animation
+  const rollAngle = time * 3;
+  ctx.save(); ctx.translate(bx, by); ctx.rotate(rollAngle);
 
   // Body
   ctx.fillStyle = '#2c2c2c';
-  ctx.beginPath();
-  ctx.arc(bx, by, bs, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#444';
-  ctx.lineWidth = s(2);
-  ctx.stroke();
-
+  ctx.beginPath(); ctx.arc(0, 0, bs, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#444'; ctx.lineWidth = s(2); ctx.stroke();
   // Highlight
   ctx.fillStyle = 'rgba(255,255,255,0.15)';
-  ctx.beginPath();
-  ctx.arc(bx - bs * 0.25, by - bs * 0.25, bs * 0.35, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(-bs * 0.25, -bs * 0.25, bs * 0.35, 0, Math.PI * 2); ctx.fill();
+  // Cross mark on bomb
+  ctx.strokeStyle = '#aa0000'; ctx.lineWidth = s(2);
+  ctx.beginPath(); ctx.moveTo(-bs * 0.3, -bs * 0.3); ctx.lineTo(bs * 0.3, bs * 0.3); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(bs * 0.3, -bs * 0.3); ctx.lineTo(-bs * 0.3, bs * 0.3); ctx.stroke();
 
-  // Fuse
-  const fuseRatio = bomb.fuseLeft / bomb.fuse;
-  const fuseLen = s(20) * fuseRatio;
-  ctx.strokeStyle = '#8B4513';
-  ctx.lineWidth = s(3);
-  ctx.beginPath();
-  ctx.moveTo(bx, by - bs);
-  ctx.lineTo(bx + fuseLen * 0.5, by - bs - fuseLen);
-  ctx.stroke();
+  ctx.restore();
 
-  // Fuse spark
-  if (fuseRatio > 0) {
-    const sparkX = bx + fuseLen * 0.5;
-    const sparkY = by - bs - fuseLen;
-    const flicker = Math.sin(time * 20) * 0.3 + 0.7;
-    ctx.fillStyle = `rgba(255, 150, 0, ${flicker})`;
-    ctx.beginPath();
-    ctx.arc(sparkX, sparkY, s(5) * flicker, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = `rgba(255, 255, 100, ${flicker * 0.8})`;
-    ctx.beginPath();
-    ctx.arc(sparkX, sparkY, s(3) * flicker, 0, Math.PI * 2);
-    ctx.fill();
-  }
+  // Fuse on top
+  ctx.strokeStyle = '#8B4513'; ctx.lineWidth = s(3);
+  ctx.beginPath(); ctx.moveTo(bx, by - bs); ctx.lineTo(bx + s(8), by - bs - s(15)); ctx.stroke();
 
-  // Warning text when fuse is low
-  if (bomb.fuseLeft < 1.5 && bomb.fuseLeft > 0) {
-    const blink = Math.sin(time * 15) > 0;
-    if (blink) {
-      ctx.fillStyle = '#ff4444';
-      ctx.font = `bold ${s(16)}px sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.fillText('⚠️', bx, by - bs - s(25));
+  // If triggered, show spark + countdown
+  if (bomb.triggered) {
+    const sparkX = bx + s(8), sparkY = by - bs - s(15);
+    const flicker = Math.sin(time * 25) * 0.3 + 0.7;
+    ctx.fillStyle = `rgba(255,150,0,${flicker})`;
+    ctx.beginPath(); ctx.arc(sparkX, sparkY, s(6) * flicker, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgba(255,255,100,${flicker * 0.8})`;
+    ctx.beginPath(); ctx.arc(sparkX, sparkY, s(3), 0, Math.PI * 2); ctx.fill();
+    // Warning
+    if (bomb.fuseLeft < 0.8) {
+      const blink = Math.sin(time * 20) > 0;
+      if (blink) {
+        ctx.fillStyle = '#ff4444'; ctx.font = `bold ${s(18)}px sans-serif`;
+        ctx.textAlign = 'center'; ctx.fillText('⚠️', bx, by - bs - s(30));
+      }
     }
   }
+
+  // Proximity trigger range indicator (subtle)
+  ctx.strokeStyle = 'rgba(255,100,50,0.08)'; ctx.lineWidth = s(1);
+  ctx.setLineDash([s(4), s(4)]);
+  ctx.beginPath(); ctx.arc(bx, by, nx(bomb.triggerDist), 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
 }
 
-// --- Explosion drawing ---
-function drawExplosion(exp, time) {
-  const progress = exp.timer / 0.8; // 0.8s animation
+// --- Explosion ---
+function drawExplosion(exp) {
+  const progress = exp.timer / 0.8;
   if (progress > 1) return;
-
   const maxR = exp.maxRadius;
   const r = maxR * Math.min(progress * 2, 1);
   const alpha = 1 - progress;
-
-  // Outer blast
   const grad = ctx.createRadialGradient(exp.x, exp.y, 0, exp.x, exp.y, r);
-  grad.addColorStop(0, `rgba(255, 200, 50, ${alpha * 0.8})`);
-  grad.addColorStop(0.3, `rgba(255, 100, 0, ${alpha * 0.6})`);
-  grad.addColorStop(0.6, `rgba(200, 50, 0, ${alpha * 0.3})`);
-  grad.addColorStop(1, `rgba(100, 20, 0, 0)`);
+  grad.addColorStop(0, `rgba(255,200,50,${alpha * 0.8})`);
+  grad.addColorStop(0.3, `rgba(255,100,0,${alpha * 0.6})`);
+  grad.addColorStop(0.6, `rgba(200,50,0,${alpha * 0.3})`);
+  grad.addColorStop(1, 'rgba(100,20,0,0)');
   ctx.fillStyle = grad;
-  ctx.beginPath();
-  ctx.arc(exp.x, exp.y, r, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Inner flash
+  ctx.beginPath(); ctx.arc(exp.x, exp.y, r, 0, Math.PI * 2); ctx.fill();
   if (progress < 0.3) {
-    ctx.fillStyle = `rgba(255, 255, 200, ${(0.3 - progress) * 3})`;
-    ctx.beginPath();
-    ctx.arc(exp.x, exp.y, r * 0.4, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = `rgba(255,255,200,${(0.3 - progress) * 3})`;
+    ctx.beginPath(); ctx.arc(exp.x, exp.y, r * 0.4, 0, Math.PI * 2); ctx.fill();
   }
-
-  // Debris particles
-  const numParticles = 12;
-  for (let i = 0; i < numParticles; i++) {
-    const angle = (i / numParticles) * Math.PI * 2 + progress * 2;
-    const dist = r * (0.5 + progress * 0.8);
-    const px = exp.x + Math.cos(angle) * dist;
-    const py = exp.y + Math.sin(angle) * dist;
+  for (let i = 0; i < 12; i++) {
+    const angle = (i / 12) * Math.PI * 2 + progress * 2;
+    const d = r * (0.5 + progress * 0.8);
+    const px = exp.x + Math.cos(angle) * d, py = exp.y + Math.sin(angle) * d;
     const pSize = s(4) * (1 - progress);
-    ctx.fillStyle = `rgba(255, ${100 + i * 10}, 0, ${alpha * 0.7})`;
+    ctx.fillStyle = `rgba(255,${100 + i * 10},0,${alpha * 0.7})`;
     ctx.fillRect(px - pSize / 2, py - pSize / 2, pSize, pSize);
   }
-
-  // Shockwave ring
   if (progress > 0.1 && progress < 0.6) {
-    const ringAlpha = (0.6 - progress) * 2;
-    ctx.strokeStyle = `rgba(255, 200, 100, ${ringAlpha})`;
+    ctx.strokeStyle = `rgba(255,200,100,${(0.6 - progress) * 2})`;
     ctx.lineWidth = s(3);
-    ctx.beginPath();
-    ctx.arc(exp.x, exp.y, r * 1.2, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.beginPath(); ctx.arc(exp.x, exp.y, r * 1.2, 0, Math.PI * 2); ctx.stroke();
   }
 }
 
-// --- Bird drawing ---
+// --- Bird ---
 function drawBird(bird, time) {
-  const bx = bird.x, by = bird.y;
-  const bs = s(16);
-  const wingFlap = Math.sin(time * 8 + bird.nx * 10) * 0.3;
-
-  ctx.save();
-  ctx.translate(bx, by);
-  // Face direction of movement
+  const bx = bird.x, by = bird.y, bs = s(16);
+  const wingFlap = Math.sin(time * 8) * 0.3;
+  ctx.save(); ctx.translate(bx, by);
   if (bird.vx < 0) ctx.scale(-1, 1);
-
-  // Body
   ctx.fillStyle = bird.biting ? '#ff4444' : '#44aa44';
-  ctx.beginPath();
-  ctx.ellipse(0, 0, bs * 1.2, bs * 0.8, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.strokeStyle = '#2a7a2a';
-  ctx.lineWidth = s(1);
-  ctx.stroke();
-
-  // Wing
+  ctx.beginPath(); ctx.ellipse(0, 0, bs * 1.2, bs * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#2a7a2a'; ctx.lineWidth = s(1); ctx.stroke();
   ctx.fillStyle = bird.biting ? '#cc3333' : '#338833';
-  ctx.beginPath();
-  ctx.ellipse(-bs * 0.2, -bs * 0.3, bs * 0.8, bs * 0.4, wingFlap, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Eye
+  ctx.beginPath(); ctx.ellipse(-bs * 0.2, -bs * 0.3, bs * 0.8, bs * 0.4, wingFlap, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = 'white';
-  ctx.beginPath();
-  ctx.arc(bs * 0.6, -bs * 0.2, bs * 0.3, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.beginPath(); ctx.arc(bs * 0.6, -bs * 0.2, bs * 0.3, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = bird.biting ? '#cc0000' : '#111';
-  ctx.beginPath();
-  ctx.arc(bs * 0.7, -bs * 0.2, bs * 0.15, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Beak
+  ctx.beginPath(); ctx.arc(bs * 0.7, -bs * 0.2, bs * 0.15, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#ff8800';
-  ctx.beginPath();
-  ctx.moveTo(bs * 1.1, -bs * 0.1);
-  ctx.lineTo(bs * 1.6, bs * 0.05);
-  ctx.lineTo(bs * 1.1, bs * 0.2);
-  ctx.closePath();
-  ctx.fill();
-
-  // Bite indicator
+  ctx.beginPath(); ctx.moveTo(bs * 1.1, -bs * 0.1); ctx.lineTo(bs * 1.6, bs * 0.05); ctx.lineTo(bs * 1.1, bs * 0.2); ctx.closePath(); ctx.fill();
   if (bird.biting) {
-    ctx.strokeStyle = '#ff0000';
-    ctx.lineWidth = s(2);
-    ctx.beginPath();
-    ctx.arc(0, 0, bs * 2, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.strokeStyle = '#ff0000'; ctx.lineWidth = s(2);
+    ctx.beginPath(); ctx.arc(0, 0, bs * 2, 0, Math.PI * 2); ctx.stroke();
   }
-
   ctx.restore();
 }
 
 function drawLevelIndicator() {
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
-  ctx.font = `bold ${s(22)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
+  ctx.font = `bold ${s(22)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
   ctx.fillText(`Level ${currentLevel + 1}`, W / 2, s(15));
 }
 
-// --- Title screen ---
 function drawTitleScreen(time) {
   drawBackground();
-
-  // Lamp emoji
-  ctx.font = `${s(70)}px sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
+  ctx.font = `${s(70)}px sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText('💡', W / 2, H * 0.18);
-
-  // Title
-  ctx.fillStyle = '#ffe066';
-  ctx.font = `bold ${s(52)}px sans-serif`;
+  ctx.fillStyle = '#ffe066'; ctx.font = `bold ${s(52)}px sans-serif`;
   ctx.fillText('Light the Lamp', W / 2, H * 0.3);
-
-  // Subtitle
-  ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  ctx.font = `${s(22)}px sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.6)'; ctx.font = `${s(22)}px sans-serif`;
   ctx.fillText('Plug in & Light up!', W / 2, H * 0.38);
-
-  // HuFamilyGame branding
-  ctx.fillStyle = 'rgba(255,224,100,0.8)';
-  ctx.font = `bold ${s(18)}px sans-serif`;
+  ctx.fillStyle = 'rgba(255,224,100,0.8)'; ctx.font = `bold ${s(18)}px sans-serif`;
   ctx.fillText('HuFamilyGame', W / 2, H * 0.45);
-
-  // Created by
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.font = `${s(15)}px sans-serif`;
+  ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = `${s(15)}px sans-serif`;
   ctx.fillText('Created by Kai and Ray', W / 2, H * 0.5);
-
-  // Play button
-  const bw = s(220), bh = s(70);
-  const bx = W / 2 - bw / 2, by = H * 0.6;
-  ctx.fillStyle = '#ffe066';
-  ctx.beginPath();
-  roundRect(ctx, bx, by, bw, bh, s(15));
-  ctx.fill();
-  ctx.fillStyle = '#1a1a2e';
-  ctx.font = `bold ${s(34)}px sans-serif`;
-  ctx.fillText('PLAY', W / 2, by + bh / 2);
+  const bw = s(220), bh = s(70), bx = W / 2 - bw / 2, by = H * 0.6;
+  ctx.fillStyle = '#ffe066'; ctx.beginPath(); roundRect(ctx, bx, by, bw, bh, s(15)); ctx.fill();
+  ctx.fillStyle = '#1a1a2e'; ctx.font = `bold ${s(34)}px sans-serif`; ctx.fillText('PLAY', W / 2, by + bh / 2);
   drawTitleScreen._btn = { x: bx, y: by, w: bw, h: bh };
-
-  // Version
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.font = `${s(14)}px sans-serif`;
-  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)'; ctx.font = `${s(14)}px sans-serif`;
   ctx.fillText(VERSION, W / 2, H * 0.95);
 }
 
 function drawGameOverScreen() {
-  ctx.fillStyle = `rgba(180, 30, 30, ${failAlpha * 0.5})`;
+  ctx.fillStyle = `rgba(180,30,30,${failAlpha * 0.5})`;
   ctx.fillRect(0, 0, W, H);
   if (failAlpha >= 0.8) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Different messages per fail reason
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     let msg = '⚡ Wire Cut!';
     if (failReason === 'bomb') msg = '💥 Boom! Wire Destroyed!';
     else if (failReason === 'bird') msg = '🐦 Bird Bit the Wire!';
-
-    ctx.fillStyle = '#ff6666';
-    ctx.font = `bold ${s(44)}px sans-serif`;
+    else if (failReason === 'pool') msg = '💧 Short Circuit!';
+    else if (failReason === 'self') msg = '🔌 Plug Hit the Wire!';
+    else if (failReason === 'cross') msg = '⚡ Wires Crossed!';
+    ctx.fillStyle = '#ff6666'; ctx.font = `bold ${s(40)}px sans-serif`;
     ctx.fillText(msg, W / 2, H * 0.38);
-
-    const bw = s(220), bh = s(70);
-    const bx = W / 2 - bw / 2, by = H * 0.52;
-    ctx.fillStyle = '#ff6666';
-    ctx.beginPath();
-    roundRect(ctx, bx, by, bw, bh, s(15));
-    ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.font = `bold ${s(30)}px sans-serif`;
-    ctx.fillText('TRY AGAIN', W / 2, by + bh / 2);
+    const bw = s(220), bh = s(70), bx = W / 2 - bw / 2, by = H * 0.52;
+    ctx.fillStyle = '#ff6666'; ctx.beginPath(); roundRect(ctx, bx, by, bw, bh, s(15)); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.font = `bold ${s(30)}px sans-serif`; ctx.fillText('TRY AGAIN', W / 2, by + bh / 2);
     drawGameOverScreen._btn = { x: bx, y: by, w: bw, h: bh };
   }
 }
 
 function drawLevelCompleteScreen() {
-  ctx.fillStyle = `rgba(50, 180, 50, ${winAlpha * 0.3})`;
+  ctx.fillStyle = `rgba(50,180,50,${winAlpha * 0.3})`;
   ctx.fillRect(0, 0, W, H);
   if (winAlpha >= 0.5) {
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = '#ffe066';
-    ctx.font = `bold ${s(56)}px sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffe066'; ctx.font = `bold ${s(56)}px sans-serif`;
     ctx.fillText('🎉 You did it!', W / 2, H * 0.45);
     if (currentLevel >= levels.length - 1) {
-      ctx.fillStyle = 'rgba(255,255,255,0.7)';
-      ctx.font = `${s(28)}px sans-serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.font = `${s(28)}px sans-serif`;
       ctx.fillText('You beat all levels! 🏆', W / 2, H * 0.55);
     }
   }
 }
 
-function drawSnappedWire() {
-  if (!wireSnapPoint || wirePath.length < 2) return;
-  const idx = wireSnapPoint.segIndex;
-  ctx.strokeStyle = '#2d2d2d';
-  ctx.lineWidth = s(7);
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(wirePath[0].x, wirePath[0].y);
-  for (let i = 1; i <= Math.min(idx + 1, wirePath.length - 1); i++) {
-    ctx.lineTo(wirePath[i].x, wirePath[i].y);
-  }
-  ctx.stroke();
-  // Spark
-  const sp = wirePath[Math.min(idx + 1, wirePath.length - 1)];
-  const sparkSize = s(15) * (1 + Math.sin(wireSnapTimer * 15) * 0.5);
-  ctx.fillStyle = `rgba(255, 200, 50, ${0.8 - wireSnapTimer * 0.8})`;
-  ctx.beginPath();
-  ctx.arc(sp.x, sp.y, sparkSize, 0, Math.PI * 2);
-  ctx.fill();
-}
-
 function roundRect(ctx, x, y, w, h, r) {
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
+  ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
 }
 
-// ============================================================
-// UPDATE FUNCTIONS
-// ============================================================
+// ============ UPDATE ============
 
 function updateMovingKnives(dt) {
   for (const mk of movingKnives) {
-    mk.x += mk.vx * dt;
-    mk.y += mk.vy * dt;
+    mk.x += mk.vx * dt; mk.y += mk.vy * dt;
     if (mk.x < mk.minX || mk.x > mk.maxX) mk.vx *= -1;
     if (mk.y < mk.minY || mk.y > mk.maxY) mk.vy *= -1;
     mk.x = Math.max(mk.minX, Math.min(mk.maxX, mk.x));
@@ -817,31 +719,54 @@ function updateMovingKnives(dt) {
   }
 }
 
-function updateBombs(dt, time) {
+function updateBombs(dt) {
   for (const bomb of bombs) {
     if (bomb.exploded) continue;
-    bomb.fuseLeft -= dt;
-    if (bomb.fuseLeft <= 0) {
-      bomb.exploded = true;
-      bomb.explodeTimer = 0;
-      // Create explosion
-      const expRadius = nx(bomb.radius);
-      explosions.push({ x: bomb.x, y: bomb.y, timer: 0, maxRadius: expRadius });
-      // Check if wire is in blast radius
-      const hitIdx = checkExplosionWire(bomb.x, bomb.y, expRadius);
-      if (hitIdx >= 0 && state === 'playing') {
-        state = 'gameover';
-        wireSnapPoint = { segIndex: hitIdx };
-        failReason = 'bomb';
-        dragging = false;
+    // Rolling movement (bounce off walls)
+    bomb.x += nx(bomb.vx) * dt;
+    bomb.y += ny(bomb.vy) * dt;
+    const margin = s(25);
+    if (bomb.x < margin || bomb.x > W - margin) bomb.vx *= -1;
+    if (bomb.y < margin || bomb.y > H - margin) bomb.vy *= -1;
+    bomb.x = Math.max(margin, Math.min(W - margin, bomb.x));
+    bomb.y = Math.max(margin, Math.min(H - margin, bomb.y));
+
+    // Proximity trigger: wire near bomb → start fuse
+    if (!bomb.triggered) {
+      const triggered = checkBombProximityOne(bomb);
+      if (triggered) {
+        bomb.triggered = true;
+        bomb.fuseLeft = 1.5;
+      }
+    } else {
+      // Fuse countdown
+      bomb.fuseLeft -= dt;
+      if (bomb.fuseLeft <= 0) {
+        bomb.exploded = true;
+        const expRadius = nx(bomb.radius);
+        explosions.push({ x: bomb.x, y: bomb.y, timer: 0, maxRadius: expRadius });
+        const hitIdx = checkExplosionWire(bomb.x, bomb.y, expRadius);
+        if (hitIdx >= 0 && state === 'playing') {
+          state = 'gameover';
+          wireSnapPoint = { segIndex: hitIdx };
+          failReason = 'bomb';
+          dragging = false;
+        }
       }
     }
   }
 }
 
+function checkBombProximityOne(bomb) {
+  const trigR = nx(bomb.triggerDist);
+  for (let i = 0; i < wirePath.length; i++) {
+    if (Math.hypot(wirePath[i].x - bomb.x, wirePath[i].y - bomb.y) < trigR) return true;
+  }
+  return false;
+}
+
 function updateBirds(dt, time) {
   for (const bird of birds) {
-    // Random walk movement
     bird.frame += dt;
     if (bird.frame > 1.5) {
       bird.frame = 0;
@@ -849,37 +774,28 @@ function updateBirds(dt, time) {
       bird.vx = Math.cos(angle) * bird.speed;
       bird.vy = Math.sin(angle) * bird.speed;
     }
-
-    bird.x += nx(bird.vx) * dt;
-    bird.y += ny(bird.vy) * dt;
-
-    // Keep in bounds
+    bird.x += nx(bird.vx) * dt; bird.y += ny(bird.vy) * dt;
     const margin = s(30);
     if (bird.x < margin) { bird.x = margin; bird.vx = Math.abs(bird.vx); }
     if (bird.x > W - margin) { bird.x = W - margin; bird.vx = -Math.abs(bird.vx); }
     if (bird.y < margin) { bird.y = margin; bird.vy = Math.abs(bird.vy); }
     if (bird.y > H - margin) { bird.y = H - margin; bird.vy = -Math.abs(bird.vy); }
 
-    // Try to bite wire
     bird.biting = false;
     if (wirePath.length > 3) {
-      // Move toward nearest wire point sometimes
       let nearestDist = Infinity, nearestPt = null;
       for (let i = 0; i < wirePath.length; i++) {
         const d = Math.hypot(wirePath[i].x - bird.x, wirePath[i].y - bird.y);
         if (d < nearestDist) { nearestDist = d; nearestPt = wirePath[i]; }
       }
-      // If close to wire, move toward it aggressively
       if (nearestPt && nearestDist < nx(0.2)) {
-        const dx = nearestPt.x - bird.x, dy = nearestPt.y - bird.y;
-        const len = Math.hypot(dx, dy);
+        const ddx = nearestPt.x - bird.x, ddy = nearestPt.y - bird.y;
+        const len = Math.hypot(ddx, ddy);
         if (len > 0) {
-          bird.x += (dx / len) * nx(bird.speed) * dt * 1.5;
-          bird.y += (dy / len) * ny(bird.speed) * dt * 1.5;
+          bird.x += (ddx / len) * nx(bird.speed) * dt * 1.5;
+          bird.y += (ddy / len) * ny(bird.speed) * dt * 1.5;
         }
       }
-
-      // Bite check
       const biteIdx = checkBirdBite(bird);
       if (biteIdx >= 0) {
         bird.biting = true;
@@ -890,34 +806,32 @@ function updateBirds(dt, time) {
           failReason = 'bird';
           dragging = false;
         }
-      } else {
-        bird.biteTimer = 0;
-      }
+      } else { bird.biteTimer = 0; }
     }
   }
 }
 
 function updateExplosions(dt) {
-  for (const exp of explosions) {
-    exp.timer += dt;
-  }
-  // Remove old explosions
+  for (const exp of explosions) exp.timer += dt;
   for (let i = explosions.length - 1; i >= 0; i--) {
     if (explosions[i].timer > 1) explosions.splice(i, 1);
   }
 }
 
-// ============================================================
-// INPUT
-// ============================================================
+// ============ INPUT ============
 
 function getPos(e) {
   const rect = canvas.getBoundingClientRect();
   const touch = e.touches ? e.touches[0] : e;
-  return {
-    x: (touch.clientX - rect.left) * devicePixelRatio,
-    y: (touch.clientY - rect.top) * devicePixelRatio
-  };
+  return { x: (touch.clientX - rect.left) * devicePixelRatio, y: (touch.clientY - rect.top) * devicePixelRatio };
+}
+
+function triggerFail(segIndex, reason) {
+  if (state !== 'playing') return;
+  state = 'gameover';
+  wireSnapPoint = { segIndex };
+  failReason = reason;
+  dragging = false;
 }
 
 function onStart(e) {
@@ -926,57 +840,49 @@ function onStart(e) {
   if (state === 'title') {
     const btn = drawTitleScreen._btn;
     if (btn && pos.x >= btn.x && pos.x <= btn.x + btn.w && pos.y >= btn.y && pos.y <= btn.y + btn.h) {
-      currentLevel = 0;
-      initLevel();
+      currentLevel = 0; initLevel();
     }
     return;
   }
   if (state === 'gameover') {
     const btn = drawGameOverScreen._btn;
-    if (btn && pos.x >= btn.x && pos.x <= btn.x + btn.w && pos.y >= btn.y && pos.y <= btn.y + btn.h) {
-      initLevel();
-    }
+    if (btn && pos.x >= btn.x && pos.x <= btn.x + btn.w && pos.y >= btn.y && pos.y <= btn.y + btn.h) initLevel();
     return;
   }
-  if (state === 'playing') {
-    if (dist(pos, plugPos) < s(50)) {
-      dragging = true;
-    }
-  }
+  if (state === 'playing' && dist(pos, plugPos) < s(50)) dragging = true;
 }
 
 function onMove(e) {
   e.preventDefault();
   if (!dragging || state !== 'playing') return;
   const pos = getPos(e);
-  plugPos.x = pos.x;
-  plugPos.y = pos.y;
+  plugPos.x = pos.x; plugPos.y = pos.y;
   const last = wirePath[wirePath.length - 1];
-  if (dist(last, pos) > s(5)) {
-    wirePath.push({ x: pos.x, y: pos.y });
-  }
+  if (dist(last, pos) > s(5)) wirePath.push({ x: pos.x, y: pos.y });
+
   // Check knife collision
-  const hit = checkAllCollisions();
-  if (hit) {
-    state = 'gameover';
-    wireSnapPoint = hit;
-    failReason = 'knife';
-    dragging = false;
-    return;
-  }
+  const hit = checkAllKnifeCollisions();
+  if (hit) { triggerFail(hit.segIndex, 'knife'); return; }
+
+  // Check pool collision
+  const poolHit = checkPoolCollisions();
+  if (poolHit) { triggerFail(poolHit.segIndex, 'pool'); return; }
+
+  // Check plug touching own wire
+  const selfHit = checkPlugSelfCollision();
+  if (selfHit >= 0) { triggerFail(selfHit, 'self'); return; }
+
+  // Check wire self-crossing
+  const crossHit = checkWireCrossing();
+  if (crossHit >= 0) { triggerFail(crossHit, 'cross'); return; }
+
   // Check socket
   const level = levels[currentLevel];
   const socketPos = { x: nx(level.socket.x), y: ny(level.socket.y) };
-  if (dist(pos, socketPos) < s(35)) {
-    state = 'levelcomplete';
-    dragging = false;
-  }
+  if (dist(pos, socketPos) < s(35)) { state = 'levelcomplete'; dragging = false; }
 }
 
-function onEnd(e) {
-  e.preventDefault();
-  dragging = false;
-}
+function onEnd(e) { e.preventDefault(); dragging = false; }
 
 canvas.addEventListener('touchstart', onStart, { passive: false });
 canvas.addEventListener('touchmove', onMove, { passive: false });
@@ -985,48 +891,39 @@ canvas.addEventListener('mousedown', onStart);
 canvas.addEventListener('mousemove', onMove);
 canvas.addEventListener('mouseup', onEnd);
 
-// ============================================================
-// MAIN GAME LOOP
-// ============================================================
+// ============ MAIN LOOP ============
 
 let lastTime = 0;
 function gameLoop(time) {
   const dt = Math.min((time - lastTime) / 1000, 0.05);
-  lastTime = time;
-  gameTime += dt;
+  lastTime = time; gameTime += dt;
+  const t = time / 1000;
 
   resize();
   drawBackground();
 
   if (state === 'title') {
-    drawTitleScreen(time / 1000);
+    drawTitleScreen(t);
   } else if (state === 'playing') {
     const level = levels[currentLevel];
     const lampPos = getLampPos(level);
+    updateMovingKnives(dt); updateBombs(dt); updateBirds(dt, t); updateExplosions(dt);
 
-    // Update dynamic entities
-    updateMovingKnives(dt);
-    updateBombs(dt, time / 1000);
-    updateBirds(dt, time / 1000);
-    updateExplosions(dt);
-
-    // Draw
     drawLamp(nx(lampPos.x), ny(lampPos.y), lampGlow);
     drawSocket(nx(level.socket.x), ny(level.socket.y));
+    pools.forEach(p => drawPool(p, t));
     level.knives.forEach(k => drawKnife(k, false));
     movingKnives.forEach(mk => drawKnife(mk, true));
-    bombs.forEach(b => drawBomb(b, time / 1000));
-    explosions.forEach(exp => drawExplosion(exp, time / 1000));
-    birds.forEach(b => drawBird(b, time / 1000));
+    bombs.forEach(b => drawBomb(b, t));
+    explosions.forEach(exp => drawExplosion(exp));
+    birds.forEach(b => drawBird(b, t));
     drawWire();
     drawPlug(plugPos.x, plugPos.y);
     drawLevelIndicator();
 
-    // Pulsing hint when not dragging
     if (!dragging) {
       const pulse = 0.5 + Math.sin(time * 0.005) * 0.3;
-      ctx.strokeStyle = `rgba(255, 224, 100, ${pulse})`;
-      ctx.lineWidth = s(2);
+      ctx.strokeStyle = `rgba(255,224,100,${pulse})`; ctx.lineWidth = s(2);
       ctx.beginPath();
       ctx.arc(plugPos.x, plugPos.y, s(30) + Math.sin(time * 0.003) * s(5), 0, Math.PI * 2);
       ctx.stroke();
@@ -1034,16 +931,16 @@ function gameLoop(time) {
   } else if (state === 'gameover') {
     const level = levels[currentLevel];
     const lampPos = getLampPos(level);
-
     updateExplosions(dt);
 
     drawLamp(nx(lampPos.x), ny(lampPos.y), 0);
     drawSocket(nx(level.socket.x), ny(level.socket.y));
+    pools.forEach(p => drawPool(p, t));
     level.knives.forEach(k => drawKnife(k, false));
     movingKnives.forEach(mk => drawKnife(mk, false));
-    bombs.forEach(b => drawBomb(b, time / 1000));
-    explosions.forEach(exp => drawExplosion(exp, time / 1000));
-    birds.forEach(b => drawBird(b, time / 1000));
+    bombs.forEach(b => drawBomb(b, t));
+    explosions.forEach(exp => drawExplosion(exp));
+    birds.forEach(b => drawBird(b, t));
     drawSnappedWire();
     drawLevelIndicator();
 
@@ -1053,7 +950,6 @@ function gameLoop(time) {
   } else if (state === 'levelcomplete') {
     const level = levels[currentLevel];
     const lampPos = getLampPos(level);
-
     lampGlow = Math.min(lampGlow + dt * 2, 1);
     winAlpha = Math.min(winAlpha + dt * 1.5, 1);
 
@@ -1068,12 +964,8 @@ function gameLoop(time) {
     if (winAlpha >= 1 && !levelAdvancing) {
       levelAdvancing = true;
       setTimeout(() => {
-        if (currentLevel < levels.length - 1) {
-          currentLevel++;
-          initLevel();
-        } else {
-          state = 'title';
-        }
+        if (currentLevel < levels.length - 1) { currentLevel++; initLevel(); }
+        else { state = 'title'; }
       }, 1200);
     }
   }
