@@ -1,5 +1,5 @@
 // ============================================================
-// Light the Lamp — 插頭接電燈益智遊戲
+// Light the Lamp — Plug in & Light up!
 // ============================================================
 
 const canvas = document.getElementById('gameCanvas');
@@ -515,7 +515,7 @@ function drawLevelIndicator() {
   ctx.fillStyle = 'rgba(255,255,255,0.7)';
   ctx.font = `bold ${s(22)}px sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(`第 ${currentLevel + 1} 關`, W / 2, s(40));
+  ctx.fillText(`Level ${currentLevel + 1}`, W / 2, s(40));
 }
 
 function drawTitleScreen() {
@@ -532,7 +532,7 @@ function drawTitleScreen() {
   // Subtitle
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
   ctx.font = `${s(24)}px sans-serif`;
-  ctx.fillText('插上插頭，點亮電燈！', W / 2, H * 0.44);
+  ctx.fillText('Plug in & Light up!', W / 2, H * 0.44);
 
   // Play button
   const bw = s(220), bh = s(70);
@@ -545,7 +545,7 @@ function drawTitleScreen() {
 
   ctx.fillStyle = '#1a1a2e';
   ctx.font = `bold ${s(32)}px sans-serif`;
-  ctx.fillText('開始遊戲', W / 2, by + bh / 2);
+  ctx.fillText('PLAY', W / 2, by + bh / 2);
 
   // Store button bounds for click detection
   drawTitleScreen._btn = { x: bx, y: by, w: bw, h: bh };
@@ -561,7 +561,7 @@ function drawGameOverScreen() {
     ctx.font = `bold ${s(52)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('⚡ 闖關失敗！', W / 2, H * 0.4);
+    ctx.fillText('⚡ Oops! Wire Cut!', W / 2, H * 0.4);
 
     // Retry button
     const bw = s(220), bh = s(70);
@@ -574,7 +574,7 @@ function drawGameOverScreen() {
 
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${s(30)}px sans-serif`;
-    ctx.fillText('重新開始', W / 2, by + bh / 2);
+    ctx.fillText('TRY AGAIN', W / 2, by + bh / 2);
 
     drawGameOverScreen._btn = { x: bx, y: by, w: bw, h: bh };
   }
@@ -589,12 +589,12 @@ function drawLevelCompleteScreen() {
     ctx.font = `bold ${s(56)}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('🎉 過關！', W / 2, H * 0.45);
+    ctx.fillText('🎉 You did it!', W / 2, H * 0.45);
 
     if (currentLevel >= levels.length - 1) {
       ctx.fillStyle = 'rgba(255,255,255,0.7)';
       ctx.font = `${s(28)}px sans-serif`;
-      ctx.fillText('恭喜全部過關！🏆', W / 2, H * 0.55);
+      ctx.fillText('You beat all levels! 🏆', W / 2, H * 0.55);
     }
   }
 }
