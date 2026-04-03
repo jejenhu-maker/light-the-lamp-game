@@ -28,6 +28,7 @@ let failAlpha = 0;
 let winAlpha = 0;
 let wireSnapPoint = null;
 let wireSnapTimer = 0;
+let levelAdvancing = false;
 
 // --- Levels ---
 // Coordinates are in 0-1 normalized space (mapped to canvas)
@@ -36,21 +37,22 @@ let wireSnapTimer = 0;
 // socket: target socket position
 // lamp: lamp position
 // knives: array of {x, y, angle, w, h}
+// Lamp is auto-placed above socket (no manual lamp coords needed)
+const LAMP_OFFSET_Y = 0.12; // lamp sits this far above socket
+
 const levels = [
   // Level 1: Tutorial — no knives
   {
     plugStart: { x: 0.15, y: 0.7 },
     origin: { x: 0.15, y: 0.7 },
-    socket: { x: 0.85, y: 0.3 },
-    lamp: { x: 0.85, y: 0.12 },
+    socket: { x: 0.85, y: 0.35 },
     knives: []
   },
   // Level 2: One knife in the middle
   {
     plugStart: { x: 0.1, y: 0.8 },
     origin: { x: 0.1, y: 0.8 },
-    socket: { x: 0.9, y: 0.2 },
-    lamp: { x: 0.9, y: 0.05 },
+    socket: { x: 0.9, y: 0.25 },
     knives: [
       { x: 0.5, y: 0.5, angle: 0.3, w: 0.12, h: 0.03 }
     ]
@@ -59,8 +61,7 @@ const levels = [
   {
     plugStart: { x: 0.1, y: 0.85 },
     origin: { x: 0.1, y: 0.85 },
-    socket: { x: 0.85, y: 0.15 },
-    lamp: { x: 0.85, y: 0.02 },
+    socket: { x: 0.85, y: 0.2 },
     knives: [
       { x: 0.35, y: 0.6, angle: -0.4, w: 0.14, h: 0.03 },
       { x: 0.65, y: 0.35, angle: 0.5, w: 0.14, h: 0.03 }
@@ -71,7 +72,6 @@ const levels = [
     plugStart: { x: 0.1, y: 0.5 },
     origin: { x: 0.1, y: 0.5 },
     socket: { x: 0.9, y: 0.5 },
-    lamp: { x: 0.9, y: 0.35 },
     knives: [
       { x: 0.35, y: 0.25, angle: 1.57, w: 0.4, h: 0.025 },
       { x: 0.65, y: 0.75, angle: 1.57, w: 0.4, h: 0.025 }
@@ -81,8 +81,7 @@ const levels = [
   {
     plugStart: { x: 0.08, y: 0.9 },
     origin: { x: 0.08, y: 0.9 },
-    socket: { x: 0.92, y: 0.1 },
-    lamp: { x: 0.92, y: 0.02 },
+    socket: { x: 0.92, y: 0.2 },
     knives: [
       { x: 0.3, y: 0.7, angle: 0.0, w: 0.18, h: 0.025 },
       { x: 0.55, y: 0.45, angle: 0.8, w: 0.16, h: 0.025 },
@@ -93,8 +92,7 @@ const levels = [
   {
     plugStart: { x: 0.1, y: 0.9 },
     origin: { x: 0.1, y: 0.9 },
-    socket: { x: 0.9, y: 0.9 },
-    lamp: { x: 0.9, y: 0.75 },
+    socket: { x: 0.9, y: 0.85 },
     knives: [
       { x: 0.25, y: 0.65, angle: 1.57, w: 0.35, h: 0.025 },
       { x: 0.5, y: 0.35, angle: 1.57, w: 0.35, h: 0.025 },
@@ -105,8 +103,7 @@ const levels = [
   {
     plugStart: { x: 0.08, y: 0.92 },
     origin: { x: 0.08, y: 0.92 },
-    socket: { x: 0.5, y: 0.08 },
-    lamp: { x: 0.5, y: 0.01 },
+    socket: { x: 0.5, y: 0.18 },
     knives: [
       { x: 0.3, y: 0.3, angle: 0, w: 0.15, h: 0.025 },
       { x: 0.7, y: 0.3, angle: 0, w: 0.15, h: 0.025 },
@@ -118,8 +115,7 @@ const levels = [
   {
     plugStart: { x: 0.05, y: 0.95 },
     origin: { x: 0.05, y: 0.95 },
-    socket: { x: 0.95, y: 0.05 },
-    lamp: { x: 0.95, y: 0.01 },
+    socket: { x: 0.92, y: 0.15 },
     knives: [
       { x: 0.2, y: 0.78, angle: 0.3, w: 0.16, h: 0.025 },
       { x: 0.38, y: 0.58, angle: -0.4, w: 0.18, h: 0.025 },
@@ -132,8 +128,7 @@ const levels = [
   {
     plugStart: { x: 0.5, y: 0.92 },
     origin: { x: 0.5, y: 0.92 },
-    socket: { x: 0.5, y: 0.08 },
-    lamp: { x: 0.5, y: 0.01 },
+    socket: { x: 0.5, y: 0.18 },
     knives: [
       { x: 0.25, y: 0.75, angle: 0, w: 0.3, h: 0.02 },
       { x: 0.75, y: 0.55, angle: 0, w: 0.3, h: 0.02 },
@@ -145,8 +140,7 @@ const levels = [
   {
     plugStart: { x: 0.05, y: 0.5 },
     origin: { x: 0.05, y: 0.5 },
-    socket: { x: 0.95, y: 0.5 },
-    lamp: { x: 0.95, y: 0.35 },
+    socket: { x: 0.92, y: 0.5 },
     knives: [
       { x: 0.2, y: 0.3, angle: 1.2, w: 0.18, h: 0.025 },
       { x: 0.2, y: 0.7, angle: -1.2, w: 0.18, h: 0.025 },
@@ -157,6 +151,11 @@ const levels = [
     ]
   }
 ];
+
+// Helper: get lamp position from socket (auto-placed above)
+function getLampPos(level) {
+  return { x: level.socket.x, y: Math.max(0.06, level.socket.y - LAMP_OFFSET_Y) };
+}
 
 // --- Helpers ---
 function nx(v) { return v * W; }
@@ -247,6 +246,7 @@ function initLevel() {
   winAlpha = 0;
   wireSnapPoint = null;
   wireSnapTimer = 0;
+  levelAdvancing = false;
   state = 'playing';
 }
 
@@ -708,9 +708,10 @@ function gameLoop(time) {
     drawTitleScreen();
   } else if (state === 'playing') {
     const level = levels[currentLevel];
+    const lampPos = getLampPos(level);
 
     // Draw elements
-    drawLamp(nx(level.lamp.x), ny(level.lamp.y), lampGlow);
+    drawLamp(nx(lampPos.x), ny(lampPos.y), lampGlow);
     drawSocket(nx(level.socket.x), ny(level.socket.y));
     level.knives.forEach(drawKnife);
     drawWire();
@@ -728,9 +729,10 @@ function gameLoop(time) {
     }
   } else if (state === 'gameover') {
     const level = levels[currentLevel];
+    const lampPos = getLampPos(level);
 
     // Draw static scene
-    drawLamp(nx(level.lamp.x), ny(level.lamp.y), 0);
+    drawLamp(nx(lampPos.x), ny(lampPos.y), 0);
     drawSocket(nx(level.socket.x), ny(level.socket.y));
     level.knives.forEach(drawKnife);
     drawSnappedWire();
@@ -742,12 +744,13 @@ function gameLoop(time) {
     drawGameOverScreen();
   } else if (state === 'levelcomplete') {
     const level = levels[currentLevel];
+    const lampPos = getLampPos(level);
 
     // Animate lamp glow
     lampGlow = Math.min(lampGlow + dt * 2, 1);
     winAlpha = Math.min(winAlpha + dt * 1.5, 1);
 
-    drawLamp(nx(level.lamp.x), ny(level.lamp.y), lampGlow);
+    drawLamp(nx(lampPos.x), ny(lampPos.y), lampGlow);
     drawSocket(nx(level.socket.x), ny(level.socket.y));
     level.knives.forEach(drawKnife);
     drawWire();
@@ -755,8 +758,9 @@ function gameLoop(time) {
     drawLevelIndicator();
     drawLevelCompleteScreen();
 
-    // Auto advance
-    if (winAlpha >= 1) {
+    // Auto advance (fire only once)
+    if (winAlpha >= 1 && !levelAdvancing) {
+      levelAdvancing = true;
       setTimeout(() => {
         if (currentLevel < levels.length - 1) {
           currentLevel++;
@@ -765,7 +769,6 @@ function gameLoop(time) {
           state = 'title';
         }
       }, 1200);
-      winAlpha = 0.999; // Prevent re-triggering
     }
   }
 
